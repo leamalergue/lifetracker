@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Life Tracker (Offline)</title>
+
+<style>
+body{
+  font-family:-apple-system,BlinkMacSystemFont,sans-serif;
+  background:#e6f5ea;
+  margin:0;padding:10px;
+}
+.tabs{
+  display:flex;justify-content:center;gap:10px;margin-bottom:10px;
+}
+.tabs button{
+  padding:6px 14px;font-size:18px;border:none;border-radius:12px;
+  background:#58CC02;color:white;font-weight:bold;cursor:pointer;
+}
+.top-buttons{
+  display:flex;justify-content:flex-end;gap:6px;margin-bottom:10px;
+}
+.top-buttons button{
+  font-size:20px;padding:6px;border:none;border-radius:10px;
+  background:#4A90E2;color:white;cursor:pointer;
+}
+.buttons-wrapper{display:flex;justify-content:center;}
+.buttons{
+  display:flex;flex-wrap:wrap;gap:12px;justify-content:center;
+}
+.buttons button{
+  font-size:28px;padding:10px;border:none;border-radius:16px;
+  background:#FFA500;color:white;cursor:pointer;
+}
+.buttons button.delete-mode{background:#ff4d4d;}
+
+#recap{
+  max-width:400px;margin:10px auto;background:white;
+  padding:10px;border-radius:12px;
+  max-height:50vh;overflow-y:auto;
+}
+.recap-line{
+  display:flex;align-items:center;gap:6px;margin-bottom:4px;
+}
+.recap-line input{width:170px;}
+.recap-line button{
+  background:#ff4d4d;color:white;border:none;border-radius:6px;
+}
+
+#statsTab{margin-top:10px;}
+#statsTable{
+  max-width:400px;margin:auto;background:white;
+  padding:10px;border-radius:12px;
+}
+</style>
+</head>
+
+<body>
+
+<div class="tabs">
+  <button onclick="showTab('tracker')">📊 Tracker</button>
+  <button onclick="showTab('stats')">📈 Stats</button>
+</div>
+
+<!-- TRACKER -->
+<div id="trackerTab">
+  <div class="top-buttons">
+    <button onclick="exportCSV()">⬇️</button>
+    <button onclick="undoAction()">↩️</button>
+    <button onclick="addCustomButton()">➕</button>
+    <button onclick="toggleDeleteMode()">➖</button>
+  </div>
+
+  <div class="buttons-wrapper">
+    <div class="buttons" id="emojiButtons"></div>
+  </div>
+
+  <div id="recap"><strong>Récapitulatif :</strong></div>
+</div>
+
+<!-- STATS -->
+<div id="statsTab" style="display:none;">
+  <div style="display:flex;gap:10px;justify-content:center;margin-bottom:10px;">
+    <select id="emojiFilter"></select>
+    <select id="intervalFilter">
+      <option value="daily">Quotidien</option>
+      <option value="monthly">Mensuel</option>
+      <option value="yearly">Annuel</option>
+      <option value="total">Total</option>
+    </select>
+    <button onclick="updateStats()">Actualiser</button>
+  </div>
+
+  <div id="statsTable"></div>
+</div>
+
+<script>
+/* ===== DONNÉES ===== */
+let labels={
+  '💩':'caca',
+  '🍽️':'repas',
+  '🛏️':'coucher',
+  '⏰':'reveil'
+};
+let history=[];
+let deleteMode=false;
+
+/* ===== UI ===== */
+function showTab(tab){
+  trackerTab.style.display = tab==='tracker'?'block':'none';
+  statsTab.style.display   = tab==='stats'  ?'block':'none';
+  if(tab==='stats') updateStats();
+}
+
+function renderButtons(){
+  const c=document.getElementById("emojiButtons");
+  c.innerHTML="";
+  Object.keys(labels).forEach(e=>{
+    const b=document.createElement("button");
+    b.textContent=e;
+    b.onclick=()=>logEvent(e);
+    c.appendChild(b);
+  });
+  updateEmojiFilter();
+}
+
+function updateEmojiFilter(){
+  const s=document.getElementById("emojiFilter");
+  const cur=s.value;
+  s.innerHTML='<option value="all">Tous</option>';
+  Object.keys(labels).forEach(e=>{
+    const o=document.createElement("option");
+    o.value=e;o.textContent=e;
+    s.appendChild(o);
+  });
+  s.value=cur||'all';
+}
+
+/* ===== EVENTS ===== */
+function getLocalTimestamp(){
+  const d=new Date();
+  return new Date(d-d.getTimezoneOffset()*60000)
+    .toISOString().slice(0,16);
+}
+
+function logEvent(emoji){
+  if(deleteMode){removeButton(emoji);return;}
+  const ev={id:crypto.randomUUID(),emoji,timestamp:getLocalTimestamp()};
+  const events=JSON.parse(localStorage.getItem("events")||"[]");
+  events.push(ev);
+  localStorage.setItem("events",JSON.stringify(events));
+  addToRecap(ev,true);
+  history.push({type:'add',ev});
+}
+
+function addToRecap(e,top=false){
+  const line=document.createElement("div");
+  line.className="recap-line";line.id=e.id;
+  line.innerHTML=`
+    <input type="datetime-local" value="${e.timestamp}"
+      onchange="editTimestamp('${e.id}',this.value)">
+    <span>${e.emoji}</span>
+    <button onclick="removeEvent('${e.id}')">🗑️</button>`;
+  if(top) recap.insertBefore(line,recap.children[1]);
+  else recap.appendChild(line);
+}
+
+function removeEvent(id){
+  let events=JSON.parse(localStorage.getItem("events")||"[]");
+  const ev=events.find(e=>e.id===id);
+  events=events.filter(e=>e.id!==id);
+  localStorage.setItem("events",JSON.stringify(events));
+  document.getElementById(id)?.remove();
+  history.push({type:'remove',ev});
+}
+
+function editTimestamp(id,v){
+  let events=JSON.parse(localStorage.getItem("events")||"[]");
+  const old=events.find(e=>e.id===id).timestamp;
+  events.forEach(e=>{if(e.id===id)e.timestamp=v;});
+  localStorage.setItem("events",JSON.stringify(events));
+  history.push({type:'edit',id,old,v});
+}
+
+/* ===== UNDO ===== */
+function undoAction(){
+  const h=history.pop(); if(!h)return;
+  let events=JSON.parse(localStorage.getItem("events")||"[]");
+  if(h.type==='add'){
+    events=events.filter(e=>e.id!==h.ev.id);
+    document.getElementById(h.ev.id)?.remove();
+  }
+  if(h.type==='remove'){
+    events.push(h.ev); addToRecap(h.ev,true);
+  }
+  if(h.type==='edit'){
+    events.forEach(e=>{if(e.id===h.id)e.timestamp=h.old;});
+    document.querySelector(`#${h.id} input`).value=h.old;
+  }
+  localStorage.setItem("events",JSON.stringify(events));
+}
+
+/* ===== BOUTONS ===== */
+function addCustomButton(){
+  const e=prompt("Emoji ?");
+  const l=prompt("Label ?");
+  if(!e||!l||labels[e])return;
+  labels[e]=l;
+  renderButtons();
+}
+function toggleDeleteMode(){
+  deleteMode=!deleteMode;
+  document.querySelectorAll(".buttons button")
+    .forEach(b=>b.classList.toggle("delete-mode",deleteMode));
+}
+function removeButton(e){
+  delete labels[e];
+  renderButtons();
+  deleteMode=false;
+}
+
+/* ===== EXPORT ===== */
+function exportCSV(){
+  const e=JSON.parse(localStorage.getItem("events")||"[]");
+  if(!e.length)return alert("Aucune donnée");
+  let csv="timestamp,emoji\n";
+  e.forEach(x=>csv+=`${x.timestamp},${x.emoji}\n`);
+  const a=document.createElement("a");
+  a.href=URL.createObjectURL(new Blob([csv]));
+  a.download="life_tracker.csv";a.click();
+}
+
+/* ===== STATS (OFFLINE) ===== */
+function updateStats(){
+  const emoji=emojiFilter.value;
+  const interval=intervalFilter.value;
+  const events=JSON.parse(localStorage.getItem("events")||"[]")
+    .filter(e=>emoji==='all'||e.emoji===emoji);
+
+  const c={};
+  events.forEach(e=>{
+    const d=new Date(e.timestamp);
+    let k;
+    if(interval==='daily')k=d.toISOString().slice(0,10);
+    else if(interval==='monthly')k=d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,'0');
+    else if(interval==='yearly')k=d.getFullYear();
+    else k='Total';
+    c[k]=(c[k]||0)+1;
+  });
+
+  const box=document.getElementById("statsTable");
+  box.innerHTML="<strong>Statistiques</strong><br><br>";
+  if(!Object.keys(c).length){box.innerHTML+="Aucune donnée";return;}
+  Object.keys(c).sort().forEach(k=>{
+    box.innerHTML+=`• ${k} : <strong>${c[k]}</strong><br>`;
+  });
+}
+
+/* ===== INIT ===== */
+window.onload=()=>{
+  renderButtons();
+  JSON.parse(localStorage.getItem("events")||"[]")
+    .reverse().forEach(e=>addToRecap(e));
+};
+</script>
+</body>
+</html>
